@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FloodSense — Real-Time Flood Prediction</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --deep: #03111f;
+    --navy: #051e34;
+    --ocean: #063a5e;
+    --wave: #0a6a9a;
+    --cyan: #12b5d8;
+    --ice: #7ae2f5;
+    --foam: #c8f5ff;
+    --white: #f0faff;
+    --danger: #ff4545;
+    --warn: #ffaa00;
+    --safe: #00e09b;
+    --safe-dim: #007a55;
+    --warn-dim: #8a5800;
+    --danger-dim: #8a1a1a;
+  }
+
+  body {
+    background: var(--deep);
+    color: var(--white);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* ─── ANIMATED OCEAN BACKGROUND ─── */
+  .ocean-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .ocean-bg::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 110%, #0a4a72 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 20% 80%, #063858 0%, transparent 60%),
+      radial-gradient(ellipse 50% 30% at 80% 90%, #084060 0%, transparent 50%),
+      linear-gradient(180deg, #02090f 0%, #03111f 30%, #051824 60%, #061f30 100%);
+  }
+
+  .rain-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.55;
+  }
+
+  .wave-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 280px;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .wave {
+    position: absolute;
+    bottom: 0;
+    left: -100%;
+    width: 300%;
+    height: 100%;
+  }
+
+  .wave svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .wave1 { animation: waveMove 12s linear infinite; opacity: 0.5; }
+  .wave2 { animation: waveMove 9s linear infinite reverse; opacity: 0.3; bottom: -10px; }
+  .wave3 { animation: waveMove 15s linear infinite; opacity: 0.2; bottom: 5px; }
+
+  @keyframes waveMove {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(33.33%); }
+  }
+
+  /* ─── LAYOUT ─── */
+  .app {
+    position: relative;
+    z-index: 10;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ─── HEADER ─── */
+  header {
+    padding: 2rem 3rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(12, 181, 216, 0.12);
+    backdrop-filter: blur(12px);
+    background: rgba(3, 17, 31, 0.6);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .logo-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #0a6a9a, #12b5d8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 20px rgba(18, 181, 216, 0.35);
+  }
+
+  .logo-icon svg { width: 24px; height: 24px; fill: white; }
+
+  .logo-text {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2rem;
+    letter-spacing: 0.08em;
+    color: var(--ice);
+    line-height: 1;
+  }
+
+  .logo-sub {
+    font-size: 0.7rem;
+    color: rgba(122, 226, 245, 0.5);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.78rem;
+    color: rgba(122, 226, 245, 0.6);
+    letter-spacing: 0.05em;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--safe);
+    box-shadow: 0 0 8px var(--safe);
+    animation: pulseDot 2s ease-in-out infinite;
+  }
+
+  @keyframes pulseDot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  /* ─── MAIN CONTENT ─── */
+  main {
+    flex: 1;
+    padding: 3rem;
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* ─── HERO SECTION ─── */
+  .hero {
+    text-align: center;
+    margin-bottom: 3.5rem;
+  }
+
+  .hero-eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin-bottom: 1rem;
+    opacity: 0.8;
+  }
+
+  .hero-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(3.5rem, 8vw, 6.5rem);
+    letter-spacing: 0.04em;
+    line-height: 0.9;
+    color: var(--white);
+    margin-bottom: 1.2rem;
+  }
+
+  .hero-title span { color: var(--cyan); }
+
+  .hero-desc {
+    font-size: 1rem;
+    color: rgba(200, 245, 255, 0.55);
+    max-width: 480px;
+    margin: 0 auto 2.5rem;
+    line-height: 1.7;
+    font-weight: 300;
+  }
+
+  /* ─── CITY SELECTOR & FETCH ─── */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+
+  .city-input {
+    background: rgba(10, 106, 154, 0.15);
+    border: 1px solid rgba(18, 181, 216, 0.25);
+    border-radius: 12px;
+    color: var(--white);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 1rem;
+    padding: 0.85rem 1.3rem;
+    width: 240px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    letter-spacing: 0.02em;
+  }
+
+  .city-input::placeholder { color: rgba(122, 226, 245, 0.3); }
+
+  .city-input:focus {
+    border-color: rgba(18, 181, 216, 0.6);
+    box-shadow: 0 0 0 3px rgba(18, 181, 216, 0.1);
+  }
+
+  .fetch-btn {
+    background: linear-gradient(135deg, #0a6a9a 0%, #12b5d8 100%);
+    border: none;
+    border-radius: 12px;
+    color: var(--deep);
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 0.85rem 1.8rem;
+    transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
+    box-shadow: 0 4px 24px rgba(18, 181, 216, 0.3);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .fetch-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(18, 181, 216, 0.45); }
+  .fetch-btn:active { transform: translateY(0); }
+  .fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .fetch-btn svg { width: 16px; height: 16px; }
+
+  /* ─── RESULT PANEL ─── */
+  .result-panel {
+    display: none;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .result-panel.visible { display: block; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── ALERT BANNER ─── */
+  .alert-banner {
+    border-radius: 20px;
+    padding: 2.5rem 3rem;
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid transparent;
+  }
+
+  .alert-banner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0.07;
+    background: radial-gradient(ellipse 60% 80% at 10% 50%, currentColor, transparent);
+  }
+
+  .alert-banner.safe {
+    background: rgba(0, 224, 155, 0.06);
+    border-color: rgba(0, 224, 155, 0.2);
+    color: var(--safe);
+  }
+
+  .alert-banner.moderate {
+    background: rgba(255, 170, 0, 0.06);
+    border-color: rgba(255, 170, 0, 0.2);
+    color: var(--warn);
+  }
+
+  .alert-banner.high {
+    background: rgba(255, 69, 69, 0.08);
+    border-color: rgba(255, 69, 69, 0.25);
+    color: var(--danger);
+    animation: dangerPulse 2s ease infinite;
+  }
+
+  @keyframes dangerPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 69, 69, 0); }
+    50% { box-shadow: 0 0 0 6px rgba(255, 69, 69, 0.08); }
+  }
+
+  .alert-left { flex: 1; }
+
+  .alert-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    opacity: 0.6;
+    margin-bottom: 0.4rem;
+  }
+
+  .alert-city {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 3.5rem;
+    letter-spacing: 0.06em;
+    line-height: 1;
+    color: var(--white);
+    margin-bottom: 0.5rem;
+  }
+
+  .alert-status {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.6rem;
+    letter-spacing: 0.1em;
+  }
+
+  .alert-icon {
+    width: 100px;
+    height: 100px;
+    flex-shrink: 0;
+  }
+
+  /* ─── METRICS GRID ─── */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .metric-card {
+    background: rgba(5, 30, 52, 0.7);
+    border: 1px solid rgba(18, 181, 216, 0.12);
+    border-radius: 16px;
+    padding: 1.4rem 1.5rem;
+    backdrop-filter: blur(10px);
+    transition: border-color 0.2s, transform 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .metric-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .metric-card.temp::after { background: linear-gradient(90deg, #ff8c42, #ffcc00); }
+  .metric-card.humid::after { background: linear-gradient(90deg, #12b5d8, #7ae2f5); }
+  .metric-card.rain::after { background: linear-gradient(90deg, #0a6a9a, #12b5d8); }
+  .metric-card.level::after { background: linear-gradient(90deg, #7b2ff7, #12b5d8); }
+
+  .metric-card:hover { border-color: rgba(18, 181, 216, 0.3); transform: translateY(-3px); }
+
+  .metric-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+    font-size: 18px;
+  }
+
+  .metric-card.temp .metric-icon { background: rgba(255, 140, 66, 0.15); }
+  .metric-card.humid .metric-icon { background: rgba(18, 181, 216, 0.12); }
+  .metric-card.rain .metric-icon { background: rgba(10, 106, 154, 0.2); }
+  .metric-card.level .metric-icon { background: rgba(123, 47, 247, 0.15); }
+
+  .metric-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(122, 226, 245, 0.45);
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .metric-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.8rem;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    color: var(--white);
+    margin-bottom: 0.25rem;
+  }
+
+  .metric-unit {
+    font-size: 0.78rem;
+    color: rgba(122, 226, 245, 0.4);
+    font-weight: 400;
+  }
+
+  /* ─── GAUGE ROW ─── */
+  .gauge-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .gauge-card {
+    background: rgba(5, 30, 52, 0.7);
+    border: 1px solid rgba(18, 181, 216, 0.12);
+    border-radius: 16px;
+    padding: 1.5rem;
+    backdrop-filter: blur(10px);
+  }
+
+  .gauge-card-title {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: rgba(122, 226, 245, 0.45);
+    margin-bottom: 1.5rem;
+  }
+
+  /* Rainfall bar */
+  .bar-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.6rem;
+  }
+
+  .bar-label { font-size: 0.82rem; color: rgba(200, 245, 255, 0.5); }
+  .bar-value { font-family: 'DM Mono', monospace; font-size: 0.82rem; color: var(--ice); }
+
+  .bar-track {
+    height: 8px;
+    background: rgba(18, 181, 216, 0.1);
+    border-radius: 100px;
+    overflow: hidden;
+    margin-bottom: 1.2rem;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 100px;
+    transition: width 1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    background: linear-gradient(90deg, #0a6a9a, #12b5d8);
+  }
+
+  .bar-fill.warn { background: linear-gradient(90deg, #d07000, #ffaa00); }
+  .bar-fill.danger { background: linear-gradient(90deg, #c02020, #ff4545); }
+
+  /* Circular gauge */
+  .circular-gauge-wrap {
+    display: flex;
+    justify-content: center;
+    position: relative;
+  }
+
+  .gauge-svg { overflow: visible; }
+
+  /* ─── LOADING ─── */
+  .loading-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(2, 9, 15, 0.75);
+    backdrop-filter: blur(8px);
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .loading-overlay.active { display: flex; }
+
+  .spinner {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 3px solid rgba(18, 181, 216, 0.15);
+    border-top-color: var(--cyan);
+    animation: spin 0.9s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.2em;
+    color: var(--cyan);
+    text-transform: uppercase;
+    opacity: 0.7;
+    animation: blink 1.4s ease infinite;
+  }
+
+  @keyframes blink { 0%, 100% { opacity: 0.7; } 50% { opacity: 0.3; } }
+
+  /* ─── ERROR ─── */
+  .error-msg {
+    display: none;
+    text-align: center;
+    padding: 1.2rem;
+    border-radius: 12px;
+    background: rgba(255, 69, 69, 0.08);
+    border: 1px solid rgba(255, 69, 69, 0.25);
+    color: #ff8a8a;
+    font-size: 0.9rem;
+    margin-bottom: 2rem;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .error-msg.visible { display: block; }
+
+  /* ─── FOOTER ─── */
+  footer {
+    text-align: center;
+    padding: 2rem 3rem;
+    font-size: 0.72rem;
+    color: rgba(122, 226, 245, 0.2);
+    letter-spacing: 0.1em;
+    font-family: 'DM Mono', monospace;
+    border-top: 1px solid rgba(18, 181, 216, 0.06);
+    position: relative;
+    z-index: 10;
+  }
+
+  /* ─── TIMESTAMP ─── */
+  .timestamp-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1.5rem;
+  }
+
+  .timestamp {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: rgba(122, 226, 245, 0.3);
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .timestamp::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--safe);
+    box-shadow: 0 0 6px var(--safe);
+  }
+
+  @media (max-width: 860px) {
+    main { padding: 2rem 1.5rem; }
+    header { padding: 1.5rem; }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    .gauge-row { grid-template-columns: 1fr; }
+    .alert-icon { width: 70px; height: 70px; }
+  }
+
+  @media (max-width: 500px) {
+    .metrics-grid { grid-template-columns: 1fr 1fr; }
+    .hero-title { font-size: 3rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Ambient layers -->
+<div class="ocean-bg"></div>
+<canvas class="rain-canvas" id="rain"></canvas>
+<div class="wave-container">
+  <div class="wave wave1">
+    <svg viewBox="0 0 1200 280" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,140 C150,70 300,210 450,140 C600,70 750,210 900,140 C1050,70 1150,175 1200,140 L1200,280 L0,280 Z" fill="rgba(10,106,154,0.3)"/>
+    </svg>
+  </div>
+  <div class="wave wave2">
+    <svg viewBox="0 0 1200 280" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,175 C200,105 350,245 550,168 C700,105 850,245 1000,168 C1100,120 1160,196 1200,168 L1200,280 L0,280 Z" fill="rgba(6,58,94,0.4)"/>
+    </svg>
+  </div>
+  <div class="wave wave3">
+    <svg viewBox="0 0 1200 280" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,196 C250,133 400,259 600,196 C800,133 950,252 1200,196 L1200,280 L0,280 Z" fill="rgba(3,17,31,0.8)"/>
+    </svg>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loader">
+  <div class="spinner"></div>
+  <div class="loading-text">Fetching weather data…</div>
+</div>
+
+<div class="app">
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C8 2 4 6 4 10c0 5.5 8 12 8 12s8-6.5 8-12c0-4-4-8-8-8zm0 10.5a2.5 2.5 0 110-5 2.5 2.5 0 010 5z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="logo-text">FloodSense</div>
+        <div class="logo-sub">Flood Prediction System</div>
+      </div>
+    </div>
+    <div class="header-status">
+      <div class="pulse-dot"></div>
+      <span>Live · OpenWeather API</span>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main>
+    <!-- Hero -->
+    <div class="hero">
+      <div class="hero-eyebrow">⚡ Real-time flood intelligence</div>
+      <h1 class="hero-title">Know Before<br>The <span>Water</span> Rises</h1>
+      <p class="hero-desc">Live weather analysis and flood risk prediction powered by OpenWeather data. Enter any city to assess current conditions.</p>
+      <div class="controls">
+        <input class="city-input" id="cityInput" type="text" placeholder="Enter city name…" value="Chennai" />
+        <button class="fetch-btn" id="fetchBtn" onclick="fetchData()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9"/>
+          </svg>
+          Analyze
+        </button>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="error-msg" id="errorMsg"></div>
+
+    <!-- Result Panel -->
+    <div class="result-panel" id="resultPanel">
+
+      <div class="timestamp-row">
+        <div class="timestamp" id="timestamp">Last updated: —</div>
+      </div>
+
+      <!-- Alert Banner -->
+      <div class="alert-banner safe" id="alertBanner">
+        <div class="alert-left">
+          <div class="alert-label">Flood Risk Assessment</div>
+          <div class="alert-city" id="alertCity">—</div>
+          <div class="alert-status" id="alertStatus">—</div>
+        </div>
+        <div class="alert-icon">
+          <svg id="alertIconSvg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <!-- safe icon default -->
+            <circle cx="50" cy="50" r="38" fill="rgba(0,224,155,0.12)" stroke="rgba(0,224,155,0.4)" stroke-width="2"/>
+            <path d="M32 52 L45 65 L68 38" stroke="#00e09b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Metrics Grid -->
+      <div class="metrics-grid">
+        <div class="metric-card temp">
+          <div class="metric-icon">🌡️</div>
+          <div class="metric-label">Temperature</div>
+          <div class="metric-value" id="mTemp">—</div>
+          <div class="metric-unit">degrees Celsius</div>
+        </div>
+        <div class="metric-card humid">
+          <div class="metric-icon">💧</div>
+          <div class="metric-label">Humidity</div>
+          <div class="metric-value" id="mHumid">—</div>
+          <div class="metric-unit">percent</div>
+        </div>
+        <div class="metric-card rain">
+          <div class="metric-icon">🌧️</div>
+          <div class="metric-label">Rainfall (1h)</div>
+          <div class="metric-value" id="mRain">—</div>
+          <div class="metric-unit">mm per hour</div>
+        </div>
+        <div class="metric-card level">
+          <div class="metric-icon">📏</div>
+          <div class="metric-label">Est. Water Level</div>
+          <div class="metric-value" id="mLevel">—</div>
+          <div class="metric-unit">meters</div>
+        </div>
+      </div>
+
+      <!-- Gauge Row -->
+      <div class="gauge-row">
+
+        <!-- Rainfall intensity bars -->
+        <div class="gauge-card">
+          <div class="gauge-card-title">Rainfall threshold analysis</div>
+
+          <div class="bar-label-row">
+            <span class="bar-label">Rainfall intensity</span>
+            <span class="bar-value" id="rainVal">— mm/h</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" id="rainBar" style="width:0%"></div></div>
+
+          <div class="bar-label-row">
+            <span class="bar-label">Humidity level</span>
+            <span class="bar-value" id="humidVal">— %</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" id="humidBar" style="width:0%"></div></div>
+
+          <div class="bar-label-row">
+            <span class="bar-label">Risk threshold (Moderate: 30 mm/h)</span>
+            <span class="bar-value" style="color:rgba(255,170,0,0.7)">30 mm/h</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill warn" style="width:60%"></div>
+          </div>
+
+          <div class="bar-label-row" style="margin-top:0.3rem">
+            <span class="bar-label">Risk threshold (High: 50 mm/h)</span>
+            <span class="bar-value" style="color:rgba(255,69,69,0.8)">50 mm/h</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill danger" style="width:100%"></div>
+          </div>
+        </div>
+
+        <!-- Circular risk gauge -->
+        <div class="gauge-card">
+          <div class="gauge-card-title">Risk level indicator</div>
+          <div class="circular-gauge-wrap">
+            <svg class="gauge-svg" id="gaugeSvg" width="200" height="170" viewBox="0 0 200 170">
+              <!-- Track -->
+              <path d="M 20 140 A 90 90 0 0 1 180 140" fill="none" stroke="rgba(18,181,216,0.1)" stroke-width="18" stroke-linecap="round"/>
+              <!-- Fill -->
+              <path id="gaugeArc" d="M 20 140 A 90 90 0 0 1 180 140" fill="none" stroke="#00e09b" stroke-width="18" stroke-linecap="round" stroke-dasharray="0 283"/>
+              <!-- Center text -->
+              <text id="gaugeLabel" x="100" y="118" text-anchor="middle" font-family="'Bebas Neue',sans-serif" font-size="38" fill="#f0faff">0%</text>
+              <text x="100" y="140" text-anchor="middle" font-family="'DM Sans',sans-serif" font-size="11" fill="rgba(122,226,245,0.4)" letter-spacing="2">RISK SCORE</text>
+              <!-- Tick marks -->
+              <g stroke="rgba(18,181,216,0.2)" stroke-width="1">
+                <line x1="20" y1="140" x2="32" y2="140" transform="rotate(-180 100 140)"/>
+                <line x1="20" y1="140" x2="29" y2="140" transform="rotate(-135 100 140)"/>
+                <line x1="20" y1="140" x2="29" y2="140" transform="rotate(-90 100 140)"/>
+                <line x1="20" y1="140" x2="29" y2="140" transform="rotate(-45 100 140)"/>
+                <line x1="20" y1="140" x2="32" y2="140" transform="rotate(0 100 140)"/>
+              </g>
+            </svg>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    FloodSense &nbsp;·&nbsp; Powered by OpenWeather API &nbsp;·&nbsp; Data refreshed on demand
+  </footer>
+</div>
+
+<script>
+// ─── RAIN ANIMATION ───────────────────────────────────────────
+const canvas = document.getElementById('rain');
+const ctx = canvas.getContext('2d');
+let drops = [];
+let animFrame;
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+function initDrops(count = 140) {
+  drops = [];
+  for (let i = 0; i < count; i++) {
+    drops.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      len: Math.random() * 18 + 8,
+      speed: Math.random() * 4 + 5,
+      opacity: Math.random() * 0.35 + 0.05,
+      width: Math.random() * 0.7 + 0.3,
+    });
+  }
+}
+
+function drawRain() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drops.forEach(d => {
+    ctx.beginPath();
+    ctx.moveTo(d.x, d.y);
+    ctx.lineTo(d.x - d.len * 0.18, d.y + d.len);
+    ctx.strokeStyle = `rgba(122, 226, 245, ${d.opacity})`;
+    ctx.lineWidth = d.width;
+    ctx.stroke();
+    d.y += d.speed;
+    d.x -= d.speed * 0.18;
+    if (d.y > canvas.height) {
+      d.y = -d.len;
+      d.x = Math.random() * canvas.width;
+    }
+  });
+  animFrame = requestAnimationFrame(drawRain);
+}
+
+resizeCanvas();
+initDrops();
+drawRain();
+window.addEventListener('resize', () => { resizeCanvas(); initDrops(); });
+
+// ─── GAUGE ANIMATION ─────────────────────────────────────────
+function setGauge(score, color) {
+  const arc = document.getElementById('gaugeArc');
+  const label = document.getElementById('gaugeLabel');
+  const total = 283;
+  const fill = (score / 100) * total;
+  arc.style.stroke = color;
+  arc.setAttribute('stroke-dasharray', `${fill} ${total}`);
+  label.textContent = score + '%';
+}
+
+// ─── BAR ANIMATION ───────────────────────────────────────────
+function setBar(id, pct, level) {
+  const bar = document.getElementById(id);
+  bar.style.width = Math.min(pct, 100) + '%';
+  bar.className = 'bar-fill';
+  if (level === 'warn') bar.classList.add('warn');
+  if (level === 'danger') bar.classList.add('danger');
+}
+
+// ─── ALERT ICON SVGs ─────────────────────────────────────────
+const icons = {
+  safe: `<circle cx="50" cy="50" r="38" fill="rgba(0,224,155,0.12)" stroke="rgba(0,224,155,0.4)" stroke-width="2"/>
+         <path d="M32 52 L45 65 L68 38" stroke="#00e09b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+  moderate: `<circle cx="50" cy="50" r="38" fill="rgba(255,170,0,0.1)" stroke="rgba(255,170,0,0.35)" stroke-width="2"/>
+             <path d="M50 28 L50 55" stroke="#ffaa00" stroke-width="5.5" stroke-linecap="round" fill="none"/>
+             <circle cx="50" cy="68" r="3.5" fill="#ffaa00"/>`,
+  high: `<circle cx="50" cy="50" r="38" fill="rgba(255,69,69,0.1)" stroke="rgba(255,69,69,0.4)" stroke-width="2"/>
+         <path d="M50 26 L54 58 L50 58 L46 58 Z" stroke="#ff4545" stroke-width="0" fill="rgba(255,69,69,0.0)"/>
+         <path d="M32 34 L68 66 M68 34 L32 66" stroke="#ff4545" stroke-width="5" stroke-linecap="round" fill="none"/>`,
+};
+
+// ─── FETCH DATA ───────────────────────────────────────────────
+async function fetchData() {
+  const city = document.getElementById('cityInput').value.trim();
+  if (!city) return;
+
+  document.getElementById('loader').classList.add('active');
+  document.getElementById('errorMsg').classList.remove('visible');
+  document.getElementById('resultPanel').classList.remove('visible');
+  document.getElementById('fetchBtn').disabled = true;
+
+  try {
+    const API_KEY = '35ace98f16e725d27861cfa9ac248cdd';
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`City not found (${res.status})`);
+    const data = await res.json();
+
+    const temperature = data.main.temp;
+    const humidity = data.main.humidity;
+    const rainfall = data.rain ? (data.rain['1h'] || 0) : 0;
+    const water_level = (rainfall * 0.5).toFixed(2);
+
+    let flood_risk = 'NO FLOOD RISK';
+    if (rainfall > 50 && humidity > 70) flood_risk = 'HIGH FLOOD RISK';
+    else if (rainfall > 30) flood_risk = 'MODERATE FLOOD RISK';
+
+    renderResult({ city: data.name, temperature, humidity, rainfall, water_level, prediction: flood_risk });
+
+  } catch (e) {
+    document.getElementById('errorMsg').textContent = '⚠ ' + e.message + ' — Please check the city name and try again.';
+    document.getElementById('errorMsg').classList.add('visible');
+  } finally {
+    document.getElementById('loader').classList.remove('active');
+    document.getElementById('fetchBtn').disabled = false;
+  }
+}
+
+function renderResult({ city, temperature, humidity, rainfall, water_level, prediction }) {
+  const panel = document.getElementById('resultPanel');
+  const banner = document.getElementById('alertBanner');
+
+  // Determine level
+  let level = 'safe', color = '#00e09b', score = 10;
+  if (prediction.includes('HIGH')) { level = 'high'; color = '#ff4545'; score = 92; }
+  else if (prediction.includes('MODERATE')) { level = 'moderate'; color = '#ffaa00'; score = 52; }
+  else {
+    // dynamic safe score
+    score = Math.max(5, Math.round((rainfall / 30) * 40));
+  }
+
+  // Banner
+  banner.className = 'alert-banner ' + level;
+  document.getElementById('alertCity').textContent = city.toUpperCase();
+  document.getElementById('alertStatus').textContent = prediction;
+  document.getElementById('alertStatus').style.color = color;
+  document.getElementById('alertIconSvg').innerHTML = icons[level];
+
+  // Metrics
+  document.getElementById('mTemp').textContent = Math.round(temperature * 10) / 10;
+  document.getElementById('mHumid').textContent = humidity;
+  document.getElementById('mRain').textContent = Math.round(rainfall * 10) / 10;
+  document.getElementById('mLevel').textContent = water_level;
+
+  // Gauge
+  setTimeout(() => setGauge(score, color), 200);
+
+  // Bars
+  const rainPct = Math.min((rainfall / 60) * 100, 100);
+  const rainBarLevel = rainfall > 50 ? 'danger' : rainfall > 30 ? 'warn' : '';
+  setTimeout(() => {
+    setBar('rainBar', rainPct, rainBarLevel);
+    setBar('humidBar', humidity, humidity > 70 ? 'warn' : '');
+    document.getElementById('rainVal').textContent = rainfall.toFixed(1) + ' mm/h';
+    document.getElementById('humidVal').textContent = humidity + ' %';
+  }, 100);
+
+  // Timestamp
+  document.getElementById('timestamp').textContent = 'Last updated: ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  panel.classList.add('visible');
+}
+
+// ─── Allow Enter key ──────────────────────────────────────────
+document.getElementById('cityInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') fetchData();
+});
+
+// Auto-load Chennai on start
+fetchData('https://mz2fqjmoir73tyu52ksu7i6xsu0vtwep.lambda-url.us-east-1.on.aws/');
+</script>
+</body>
+</html>
